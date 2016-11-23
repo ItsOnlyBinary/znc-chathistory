@@ -5,10 +5,10 @@ import re
 import znc
 from collections import defaultdict
 
-VERSION = '1.0.0'
-UPDATED = "November 19, 2016"
+VERSION = '1.0.1'
+UPDATED = "November 22, 2016"
 
-SCROLLBACK_CAPABILITY = 'znc.in/scrollback'
+COMMAND = "SCROLLBACK"
 BATCH_ID_SIZE = 13
 
 # Default user configuration if they haven't set a value themselves
@@ -40,7 +40,8 @@ strip_control_codes_regex = re.compile("\x1d|\x1f|\x0f|\x02|\x03(?:\d{1,2}(?:,\d
 class scrollback(znc.Module):
 
     module_types = [znc.CModInfo.GlobalModule]
-    description = "ZNC scrollback capability"
+    description = "ZNC scrollback support"
+    wiki_page = "Scrollback"
 
     # Glbal configuration containing all users who changed their settings
     config = defaultdict(dict)
@@ -50,31 +51,42 @@ class scrollback(znc.Module):
         if os.path.exists(config_file):
             with open(config_file) as data_file:
                 self.config = json.load(data_file)
+
+        usermap = znc.CZNC.Get().GetUserMap()
+        for user in usermap.items():
+            networks = user[1].GetNetworks()
+            for network in networks:
+                clients = network.GetClients()
+                for client in clients:
+                    nick = client.GetNick()
+                    self.send_isupport(client)
         return True
 
-    # Add the znc.in/scrollback CAP to be sent to the client by ZNC
-    def OnClientCapLs(self, client, caps):
-        caps.insert(SCROLLBACK_CAPABILITY)
-
-    # Determine if the capability if supported by the client
-    def IsClientCapSupported(self, client, cap, state):
-        return True if cap == SCROLLBACK_CAPABILITY else False
+    def OnClientLogin(self):
+        client = self.GetClient()
+        self.send_isupport(client)
 
     def OnUserRaw(self, line):
         line = str(line).split()
-        # Handle the SCROLL command send by the client
-        if line[0] == "SCROLL":
-            user = self.GetNetwork().GetUser().GetUserName()
+        # Handle the scrollback command send by the client
+        if line[0] == COMMAND:
+            user = self.GetUser().GetUserName()
             network = self.GetNetwork().GetName()
             target = line[1].lower()
 
             user_config = self.get_user_config()
             user_config['path'] = user_config['path'].replace('$USER', user).replace('$NETWORK', network).replace('$WINDOW', target)
 
-            # SCROLL target start_date start_time
-            # SCROLL #mutterirc 2016-11-12 13:10:01
+            # SCROLLBACK target start_date start_time
+            # SCROLLBACK #mutterirc 2016-11-12 13:10:01
             self.parse_logs(user_config, network, target, line[2], line[3])
             return znc.HALT
+        elif line[0]== "VERSION":
+            client = self.GetClient()
+            self.send_isupport(client)
+
+    def send_isupport(self, client):
+        client.PutClient(':irc.znc.in 005 {} {} :are supported by this server'.format(client.GetNick(), COMMAND))
 
     # Format and return the 'time=YYYY-mm-ddTHH:mm:ss.000Z' string to be prepended to the IRC line
     def get_time_string(self, time, file):
@@ -247,7 +259,7 @@ class scrollback(znc.Module):
 
     # Get the configuraton of the current user, returning default value if not explicitly set by uesr
     def get_user_config(self):
-        user = self.GetNetwork().GetUser().GetUserName()
+        user = self.GetUser().GetUserName()
         user_config = defaultdict(dict)
         for key, value in DEFAULT_CONFIG.items():
             try:
@@ -259,11 +271,11 @@ class scrollback(znc.Module):
     # Set the configuration option for the current user as sent to the module and then write it to the config file
     def set_config(self, key, value):
         config_file = self.GetSavePath() + '/' + 'scrollback.json'
-        user = self.GetNetwork().GetUser().GetUserName()
+        user = self.GetUser().GetUserName()
         self.config[user][key] = value
 
         with open(config_file, 'w') as data_file:
-            json.dump(self.config, data_file)
+            json.dump(self.config, data_file, indent=4, sort_keys=True)
 
         self.PutModule("\x02Settings updated.\x02")
 
@@ -272,8 +284,7 @@ class scrollback(znc.Module):
         self.PutModule("\x02Description:\x02 {}".format(self.description))
         self.PutModule("\x02Version:\x02 {}".format(VERSION))
         self.PutModule("\x02Updated:\x02 {}".format(UPDATED))
-        self.PutModule("\x02Documenation:\x02 http://wiki.znc.in/Scrollback")
-        self.PutModule("\x02Source:\x02 https://github.com/MuffinMedic/znc-scrollback")
+        self.PutModule("\x02Documentation and Source:\x02 https://github.com/MuffinMedic/znc-scrollback")
 
     # Handle each of the user commands
     def OnModCommand(self, command):

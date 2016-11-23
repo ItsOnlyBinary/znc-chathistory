@@ -1,5 +1,5 @@
 # znc-scrollback
-Implements the `znc.in/scrollback` capability, enabling infinite scrollback in clients by pulling previous content from log files and sending them to the client as raw IRC lines
+Implements the `SCROLLBACK` command, enabling infinite scrollback in clients by pulling previous content from log files and sending them to the client as raw IRC lines
 
 ## Table of Contents
 - [Requirements](#requirements)
@@ -23,7 +23,7 @@ To install *znc-scrollback*, place `scrollback.py` in your ZNC modules folder
 
 ## Commands
 
-`set <setting> <value>` Set the [configuration options](#settings)
+`set <option> <value>` Set the [configuration options](#settings)
 
 `settings` Display your current settings
 
@@ -31,7 +31,7 @@ To install *znc-scrollback*, place `scrollback.py` in your ZNC modules folder
 
 `help` Print help for this module
 
-### Configuration options
+### Configuration Options
 
 `size` **integer** The amount of lines to retrieve during each scrollback request
 
@@ -47,7 +47,9 @@ Specify the complete, absolute path to your log files. Accepted variables:
 
 `debug` **True/False** Send output to module instead of client
 
-## Capability Specification
+## Command Specification
+
+Command support is sent to the client as the RPL_ISUPPORT 005 numeric `:irc.znc.in 005 nick SCROLLBACK :are supported by this server` 
 
 The module outputs content specified by the [IRCv3.2 batch Extension](http://ircv3.net/specs/extensions/batch-3.2.html) using a modified [chathistory](http://ircv3.net/specs/extensions/batch/chathistory-3.3.html) batch type. All IRC content follows [RFC 1459](https://tools.ietf.org/html/rfc1459).
 
@@ -58,15 +60,15 @@ To allow the client to identify scrollback content, the `chathistory` type has b
 - **target:** A channel or query window to which the scrollback belongs
 
 ### Requesting Scrollback
-Scrollback content can be requested from the client by sending the `SCROLL` command to ZNC from the client.
+Scrollback content can be requested from the client by sending the `SCROLLBACK` command to ZNC from the client.
 
 The latest timestamp the client currently has in it's scrollback should be sent. The module will send any content **before** the given date and time.
 
 #### Format
-    SCROLL target YYYY-mm-dd HH:mm:ss
+    SCROLLBACK target YYYY-mm-dd HH:mm:ss
 
 #### Example
-    SCROLL #znc 2016-11-19 18:02:10
+    SCROLLBACK #znc 2016-11-19 18:02:10
 
 ### Returned Scrollback
 
