@@ -1,5 +1,5 @@
 # znc-scrollback
-Implements the `SCROLLBACK` command, enabling infinite scrollback in clients by pulling previous content from log files and sending them to the client as raw IRC lines
+Implements the `SCROLLBACK` command, enabling infinite scrollback in clients by pulling previous content from log files and sending them to the client as raw IRC lines.
 
 ## Table of Contents
 - [Requirements](#requirements)
@@ -7,6 +7,9 @@ Implements the `SCROLLBACK` command, enabling infinite scrollback in clients by 
 - [Loading](#loading)
 - [Commands](#commands)
 - [Capability Specification](#capability-specification)
+    - [Variables](#variables)
+    - [Requesting Scrollback](#requesting-scrollback)
+    - [Returned Scrollback](#returned-scrollback)
 - [Contact](#contact)
 
 ## Requirements
@@ -14,6 +17,7 @@ Implements the `SCROLLBACK` command, enabling infinite scrollback in clients by 
      - Log files named per the [ZNC 1.6 log module](http://wiki.znc.in/Log#Arguments)  (`%Y-%m-%d.log`)
  - <a href="https://www.python.org">Python 3</a>
  - <a href="http://wiki.znc.in/Modpython">modpython</a>
+ - **Your client must have support for the `SCROLLBACK` command as outlined in the [Command Specification](#capability-specification). Speak with your client developer if you would like this feature supported.**
 
 ## Installation
 To install *znc-scrollback*, place `scrollback.py` in your ZNC modules folder
