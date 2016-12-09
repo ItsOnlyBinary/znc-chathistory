@@ -5,8 +5,8 @@ import re
 import znc
 from collections import defaultdict
 
-VERSION = '1.0.1'
-UPDATED = "November 22, 2016"
+VERSION = '1.0.2'
+UPDATED = "December 8, 2016"
 
 COMMAND = "SCROLLBACK"
 BATCH_ID_SIZE = 13
@@ -69,7 +69,7 @@ class scrollback(znc.Module):
     def OnUserRaw(self, line):
         line = str(line).split()
         # Handle the scrollback command send by the client
-        if line[0] == COMMAND:
+        if line[0].upper() == COMMAND:
             user = self.GetUser().GetUserName()
             network = self.GetNetwork().GetName()
             target = line[1].lower()
