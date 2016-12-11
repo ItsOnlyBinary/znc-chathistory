@@ -1,5 +1,9 @@
 # Changelog
 
+### Version 1.0.3
+  * Change `SCROLLBACK` time format to match IRCv3 `server-time` spec (same as used in `@batch`)
+  * Added option 3rd parameter to `SCROLLBACK` to specify `message_count` (will use ZNC user setting if not specified)
+
 ### Version 1.0.2
   * Make command case-insensitive
 

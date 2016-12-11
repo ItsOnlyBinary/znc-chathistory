@@ -1,3 +1,27 @@
+#  znc-scrollback: ZNC scrollback support
+#  Copyright (C) 2016 Evan Magaliff
+#
+#  This program is free software: you can redistribute it and/or modify
+#  it under the terms of the GNU General Public License as published by
+#  the Free Software Foundation, either version 3 of the License, or
+#  (at your option) any later version.
+#
+#  This program is distributed in the hope that it will be useful,
+#  but WITHOUT ANY WARRANTY; without even the implied warranty of
+#  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#  GNU General Public License for more details.
+#
+#  You should have received a copy of the GNU General Public License
+#  along with this program.  If not, see <http://www.gnu.org/licenses/>.
+#
+# # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
+#  Authors: Evan (MuffinMedic)                                            #
+#  Contributors: prawnsalad                                               #
+#  Desc: Implements the SCROLLBACK command, enabling infinite scrollback  #
+#        in clients by pulling previous content from log files and        #
+#        sending them to the client as raw IRC lines                      #
+# # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
+
 import json
 import os.path
 import random, string
@@ -5,8 +29,8 @@ import re
 import znc
 from collections import defaultdict
 
-VERSION = '1.0.2'
-UPDATED = "December 8, 2016"
+VERSION = '1.0.3'
+UPDATED = "December 11, 2016"
 
 COMMAND = "SCROLLBACK"
 BATCH_ID_SIZE = 13
@@ -77,9 +101,15 @@ class scrollback(znc.Module):
             user_config = self.get_user_config()
             user_config['path'] = user_config['path'].replace('$USER', user).replace('$NETWORK', network).replace('$WINDOW', target)
 
-            # SCROLLBACK target start_date start_time
-            # SCROLLBACK #mutterirc 2016-11-12 13:10:01
-            self.parse_logs(user_config, network, target, line[2], line[3])
+            # SCROLLBACK target start_date start_time message_count
+            # SCROLLBACK #mutterirc 2016-11-12 13:10:01 100
+            start_date = line[2].split('T')[0]
+            start_time = (line[2].split('T')[0]).split('.')[0]
+            try:
+                message_count = int(line[3])
+            except (IndexError, ValueError):
+                message_count = user_config['size']
+            self.parse_logs(user_config, network, target, start_date, start_time, message_count)
             return znc.HALT
         elif line[0]== "VERSION":
             client = self.GetClient()
@@ -157,7 +187,7 @@ class scrollback(znc.Module):
             self.GetClient().PutClient(line)
 
     # Parse through the log files, extract the appropritae content, format a raw IRC line, and send the line for BATCH processing
-    def parse_logs(self, user_config, network, target, start_date, start_time):
+    def parse_logs(self, user_config, network, target, start_date, start_time, message_count):
         scrollback = []
         isFirstFile = True
         path = user_config['path']
@@ -165,9 +195,9 @@ class scrollback(znc.Module):
         files = sorted([f for f in os.listdir(path) if log_file_name_regex.match(f) and f.split('.')[0] <= start_date], reverse=True)
         # Iterate through each file in reverse order, checking if the max number of lines has been reached
         for file in files:
-            if len(scrollback) <= user_config['size']:
+            if len(scrollback) <= message_count:
                 for line in reversed(list(open(path + file, 'r'))):
-                    if len(scrollback) <= user_config['size']:
+                    if len(scrollback) <= message_count:
                         # Strip control codes if set by user
                         if user_config['strip']:
                             line = strip_control_codes_regex.sub('', line)
@@ -281,6 +311,7 @@ class scrollback(znc.Module):
 
     def about(self):
         self.PutModule("\x02scollback\x02 ZNC module by MuffinMedic (Evan)")
+        self.PutModule("\x02Contributors:\x02 prawnsalad")
         self.PutModule("\x02Description:\x02 {}".format(self.description))
         self.PutModule("\x02Version:\x02 {}".format(VERSION))
         self.PutModule("\x02Updated:\x02 {}".format(UPDATED))
