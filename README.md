@@ -71,10 +71,12 @@ Scrollback content can be requested from the client by sending the `SCROLLBACK` 
 The latest timestamp the client currently has in it's scrollback should be sent. The module will send any content **before** the given date and time.
 
 #### Format
-    SCROLLBACK target YYYY-MM-DDThh:mm:ss.sssZ
+    SCROLLBACK target YYYY-MM-DDThh:mm:ss.sssZ [message_count]
+
+*If no message_count is known,* `*` *can be used as default.*
 
 #### Example
-    SCROLLBACK #scrollback 2016-11-19T18:02:10.000Z
+    SCROLLBACK #scrollback 2016-11-19T18:02:10.000Z 50
 
 ### Returned Scrollback
 
