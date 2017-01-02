@@ -16,7 +16,7 @@
 #
 # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
 #  Authors: Evan (MuffinMedic)                                            #
-#  Contributors: prawnsalad                                               #
+#  Contributors: doaks, kr0n, prawnsalad                                  #
 #  Desc: Implements the SCROLLBACK command, enabling infinite scrollback  #
 #        in clients by pulling previous content from log files and        #
 #        sending them to the client as raw IRC lines                      #
@@ -26,11 +26,12 @@ import json
 import os.path
 import random, string
 import re
+import uuid
 import znc
 from collections import defaultdict
 
-VERSION = '1.0.3'
-UPDATED = "December 11, 2016"
+VERSION = '1.0.4'
+UPDATED = "January 2, 2017"
 
 COMMAND = "SCROLLBACK"
 BATCH_ID_SIZE = 13
@@ -102,15 +103,21 @@ class scrollback(znc.Module):
             user_config['path'] = user_config['path'].replace('$USER', user).replace('$NETWORK', network).replace('$WINDOW', target)
 
             # SCROLLBACK target start_date start_time message_count
-            # SCROLLBACK #mutterirc 2016-11-12 13:10:01 100
+            # SCROLLBACK #mutterirc 2016-11-12T13:10:01.000Z 100
             start_date = line[2].split('T')[0]
-            start_time = (line[2].split('T')[0]).split('.')[0]
+            start_time = (line[2].split('T')[1]).split('.')[0]
             try:
                 message_count = int(line[3])
             except (IndexError, ValueError):
                 message_count = user_config['size']
-            self.parse_logs(user_config, network, target, start_date, start_time, message_count)
-            return znc.HALT
+
+            try:
+                self.parse_logs(user_config, network, target, start_date, start_time, message_count)
+                return znc.HALT
+            except Exception as e:
+                if user_config['debug']:
+                    self.PutModule(str(e))
+
         elif line[0]== "VERSION":
             client = self.GetClient()
             self.send_isupport(client)
@@ -166,16 +173,17 @@ class scrollback(znc.Module):
     # Convert and return the raw scrollback from logs to an IRCv3 BATCH
     def generate_batch(self, scrollback, target):
         # Generate a random alphanumeric BATCH ID
-        id = ''.join(random.choice(string.ascii_lowercase + string.ascii_uppercase + string.digits) for i in range(BATCH_ID_SIZE))
+        batch_id = ''.join(random.choice(string.ascii_lowercase + string.ascii_uppercase + string.digits) for i in range(BATCH_ID_SIZE))
         # Place the BATCH start identifer to the beginning of the scrollback
-        line = ':znc.in BATCH +{} scrollback {}'.format(id, target)
+        line = ':irc.znc.in BATCH +{} scrollback {}'.format(batch_id, target)
         self.send_scrollback(line)
         # Prepend the BATCH ID to each line from the scrollback
         for line in scrollback:
-            line = '@batch={};{}'.format(id, line)
+            msg_id = uuid.uuid4()
+            line = '@batch={};draft/msgid={};{}'.format(batch_id, msg_id, line)
             self.send_scrollback(line)
         # Place the BATCH end identifer to the beginning of the scrollback
-        line = ':znc.in BATCH -{}'.format(id)
+        line = ':irc.znc.in BATCH -{}'.format(batch_id)
         self.send_scrollback(line)
 
     # Send the given line to the user
@@ -195,9 +203,9 @@ class scrollback(znc.Module):
         files = sorted([f for f in os.listdir(path) if log_file_name_regex.match(f) and f.split('.')[0] <= start_date], reverse=True)
         # Iterate through each file in reverse order, checking if the max number of lines has been reached
         for file in files:
-            if len(scrollback) <= message_count:
+            if len(scrollback) < message_count:
                 for line in reversed(list(open(path + file, 'r'))):
-                    if len(scrollback) <= message_count:
+                    if len(scrollback) < message_count:
                         # Strip control codes if set by user
                         if user_config['strip']:
                             line = strip_control_codes_regex.sub('', line)
@@ -311,7 +319,7 @@ class scrollback(znc.Module):
 
     def about(self):
         self.PutModule("\x02scollback\x02 ZNC module by MuffinMedic (Evan)")
-        self.PutModule("\x02Contributors:\x02 prawnsalad")
+        self.PutModule("\x02Contributors:\x02 doaks, kr0n, prawnsalad")
         self.PutModule("\x02Description:\x02 {}".format(self.description))
         self.PutModule("\x02Version:\x02 {}".format(VERSION))
         self.PutModule("\x02Updated:\x02 {}".format(UPDATED))
@@ -345,7 +353,7 @@ class scrollback(znc.Module):
                         else:
                             self.PutModule("You must enter True or False.")
                     elif setting_name == "path":
-                        self.set_config(setting_name, setting_value)
+                        self.set_config(setting_name, split_cmd[2])
                     else:
                         self.PutModule("Invalid setting. See \x02help.\x02")
                 elif lower_split_cmd[0] == "settings":

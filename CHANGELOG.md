@@ -1,5 +1,11 @@
 # Changelog
 
+### Version 1.0.4
+  * Add `draft/msgid` tag to scrollback
+  * Fix case-sensitivity bug
+  * Include additional debug output when enabled
+  * Fix line parsing bug
+
 ### Version 1.0.3
   * Change `SCROLLBACK` time format to match IRCv3 `server-time` spec (same as used in `@batch`)
   * Added option 3rd parameter to `SCROLLBACK` to specify `message_count` (will use ZNC user setting if not specified)
