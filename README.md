@@ -1,5 +1,5 @@
-# znc-scrollback
-Implements the `SCROLLBACK` command, enabling infinite scrollback in clients by pulling previous content from log files and sending them to the client as raw IRC lines.
+# znc-chathistory
+Implements the `CHATHISTORY` command, enabling infinite chathistory in clients by pulling previous content from log files and sending them to the client as raw IRC lines.
 
 ## Table of Contents
 - [Requirements](#requirements)
@@ -16,13 +16,13 @@ Implements the `SCROLLBACK` command, enabling infinite scrollback in clients by 
      - Log files named per the [ZNC 1.6 log module](http://wiki.znc.in/Log#Arguments)  (`%Y-%m-%d.log`)
  - <a href="https://www.python.org">Python 3</a>
  - <a href="http://wiki.znc.in/Modpython">modpython</a>
- - **Your client must have support for the `SCROLLBACK` command as outlined in the [Develope Information](#developer-information). Speak with your client developer if you would like this feature supported.**
+ - **Your client must have support for the `CHATHISTORY` command as outlined in the [Develope Information](#developer-information). Speak with your client developer if you would like this feature supported.**
 
 ## Installation
-To install *znc-scrollback*, place `scrollback.py` in your ZNC modules folder
+To install *znc-chathistory*, place `chathistory.py` in your ZNC modules folder
 
 ## Loading
-`/znc loadmod scrollback`
+`/znc loadmod chathistory`
 
 ## Commands
 
@@ -36,9 +36,9 @@ To install *znc-scrollback*, place `scrollback.py` in your ZNC modules folder
 
 ### Configuration Options
 
-`message_count` **integer** The amount of lines to retrieve during each scrollback request
+`message_count` **integer** The amount of lines to retrieve during each chathistory request
 
-`extras` **True/False**  Include extra events in scrollback (join, kick, mode, nick, quit, part, topic)
+`extras` **True/False**  Include extra events in chathistory (join, kick, mode, nick, quit, part, topic)
 
 `strip` **True/False** Strip control codes from output
 
@@ -57,9 +57,9 @@ Please see the [IRCv3 draft specification](https://github.com/ircv3/ircv3-specif
 Special thank you to [DanielOaks](https://github.com/DanielOaks) and [prawnsalad](https://github.com/prawnsalad) for providing IRCv3 support and feedback.
 
 ## Contact
-Issues/bugs should be submitted on the <a href="https://github.com/MuffinMedic/znc-scrollback/issues">GitHub issues page</a>.
+Issues/bugs should be submitted on the <a href="https://github.com/MuffinMedic/znc-chathistory/issues">GitHub issues page</a>.
 
 For assistance, please PM MuffinMedic (Evan) on <a href="https://kiwiirc.com/client/irc.snoonet.org:+6697">Snoonet</a> or <a href="https://kiwiirc.com/client/irc.freenode.net:+6697">freenode<a/>.
 
 ## License
-This software is copyright Evan Magaliff and licensed under the GPLv3 license. See the [LICENSE](https://github.com/MuffinMedic/znc-scrollback/blob/master/LICENSE) for more information.
+This software is copyright Evan Magaliff and licensed under the GPLv3 license. See the [LICENSE](https://github.com/MuffinMedic/znc-chathistory/blob/master/LICENSE) for more information.

@@ -1,4 +1,4 @@
-#  znc-scrollback: ZNC scrollback support
+#  znc-chathistory: ZNC chathistory support
 #  Copyright (C) 2016 Evan Magaliff
 #
 #  This program is free software: you can redistribute it and/or modify
@@ -17,9 +17,9 @@
 # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
 #  Authors: Evan (MuffinMedic)                                            #
 #  Contributors: doaks, kr0n, prawnsalad                                  #
-#  Desc: Implements the SCROLLBACK command, enabling infinite scrollback  #
-#        in clients by pulling previous content from log files and        #
-#        sending them to the client as raw IRC lines                      #
+#  Desc: Implements the CHATHISTORY command, enabling infinite            #
+#        chathistory in clients by pulling previous content from log      #
+#        files and sending them to the client as raw IRC lines            #
 # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
 
 import json
@@ -33,7 +33,7 @@ from collections import defaultdict
 VERSION = '1.0.4'
 UPDATED = "January 2, 2017"
 
-COMMAND = "SCROLLBACK"
+COMMAND = "CHATHISTORY"
 BATCH_ID_SIZE = 13
 
 # Default user configuration if they haven't set a value themselves
@@ -45,7 +45,7 @@ DEFAULT_CONFIG['strip'] = False
 DEFAULT_CONFIG['debug'] = False
 
 # The default 'ident' and 'host' values to be used if they are not contained in the log
-DEFAULT_IDENT = 'scrollback'
+DEFAULT_IDENT = 'chathistory'
 DEFAULT_HOST = 'znc.in'
 
 # Regex patterns needed to extract the IRC events out of the logs
@@ -62,17 +62,17 @@ mode_change_regex = re.compile(r'^\[([\d:]+)\] \*\*\*\ (.*)\ sets mode: (.*)')
 # Regex to remove any control codes from the output
 strip_control_codes_regex = re.compile("\x1d|\x1f|\x0f|\x02|\x03(?:\d{1,2}(?:,\d{1,2})?)?", re.UNICODE)
 
-class scrollback(znc.Module):
+class chathistory(znc.Module):
 
     module_types = [znc.CModInfo.GlobalModule]
-    description = "ZNC scrollback support"
-    wiki_page = "Scrollback"
+    description = "ZNC chathistory support"
+    wiki_page = "Chathistory"
 
     # Glbal configuration containing all users who changed their settings
     config = defaultdict(dict)
 
     def OnLoad(self, args, message):
-        config_file = self.GetSavePath() + '/' + 'scrollback.json'
+        config_file = self.GetSavePath() + '/' + 'chathistory.json'
         if os.path.exists(config_file):
             with open(config_file) as data_file:
                 self.config = json.load(data_file)
@@ -93,7 +93,7 @@ class scrollback(znc.Module):
 
     def OnUserRaw(self, line):
         line = str(line).split()
-        # Handle the scrollback command send by the client
+        # Handle the chathistory command send by the client
         if line[0].upper() == COMMAND:
             user = self.GetUser().GetUserName()
             network = self.GetNetwork().GetName()
@@ -102,9 +102,9 @@ class scrollback(znc.Module):
             user_config = self.get_user_config()
             user_config['path'] = user_config['path'].replace('$USER', user).replace('$NETWORK', network).replace('$WINDOW', target)
 
-            # SCROLLBACK target start_date start_time message_count
-            # SCROLLBACK #mutterirc 2016-11-12T13:10:01.000Z 100
-            start_date = line[2].split('T')[0]
+            # CHATHISTORY target start_date start_time message_count
+            # CHATHISTORY #mutterirc 2016-11-12T13:10:01.000Z 100
+            start_date = (line[2].split('T')[0]).replace('timestamp=', '')
             start_time = (line[2].split('T')[1]).split('.')[0]
             try:
                 message_count = int(line[3])
@@ -170,24 +170,24 @@ class scrollback(znc.Module):
             message = None
         return message
 
-    # Convert and return the raw scrollback from logs to an IRCv3 BATCH
-    def generate_batch(self, scrollback, target):
+    # Convert and return the raw chathistory from logs to an IRCv3 BATCH
+    def generate_batch(self, chathistory, target):
         # Generate a random alphanumeric BATCH ID
         batch_id = ''.join(random.choice(string.ascii_lowercase + string.ascii_uppercase + string.digits) for i in range(BATCH_ID_SIZE))
-        # Place the BATCH start identifer to the beginning of the scrollback
-        line = ':irc.znc.in BATCH +{} scrollback {}'.format(batch_id, target)
-        self.send_scrollback(line)
-        # Prepend the BATCH ID to each line from the scrollback
-        for line in scrollback:
+        # Place the BATCH start identifer to the beginning of the chathistory
+        line = ':irc.znc.in BATCH +{} chathistory {}'.format(batch_id, target)
+        self.send_chathistory(line)
+        # Prepend the BATCH ID to each line from the chathistory
+        for line in chathistory:
             msg_id = uuid.uuid4()
             line = '@batch={};draft/msgid={};{}'.format(batch_id, msg_id, line)
-            self.send_scrollback(line)
-        # Place the BATCH end identifer to the beginning of the scrollback
+            self.send_chathistory(line)
+        # Place the BATCH end identifer to the beginning of the chathistory
         line = ':irc.znc.in BATCH -{}'.format(batch_id)
-        self.send_scrollback(line)
+        self.send_chathistory(line)
 
     # Send the given line to the user
-    def send_scrollback(self, line):
+    def send_chathistory(self, line):
         user_config = self.get_user_config()
         if user_config['debug']:
             self.PutModule(line)
@@ -196,16 +196,16 @@ class scrollback(znc.Module):
 
     # Parse through the log files, extract the appropritae content, format a raw IRC line, and send the line for BATCH processing
     def parse_logs(self, user_config, network, target, start_date, start_time, message_count):
-        scrollback = []
+        chathistory = []
         isFirstFile = True
         path = user_config['path']
         # Get a list of all log files in the given user, network, and window
         files = sorted([f for f in os.listdir(path) if log_file_name_regex.match(f) and f.split('.')[0] <= start_date], reverse=True)
         # Iterate through each file in reverse order, checking if the max number of lines has been reached
         for file in files:
-            if len(scrollback) < message_count:
+            if len(chathistory) < message_count:
                 for line in reversed(list(open(path + file, 'r'))):
-                    if len(scrollback) < message_count:
+                    if len(chathistory) < message_count:
                         # Strip control codes if set by user
                         if user_config['strip']:
                             line = strip_control_codes_regex.sub('', line)
@@ -224,7 +224,7 @@ class scrollback(znc.Module):
                                     message = self.get_message_string(split_line[2:], action)
                                     
                                     line = '{} :{}!{}@{} PRIVMSG {} :{}'.format(time, nick, DEFAULT_IDENT, DEFAULT_HOST, target, message)
-                                    scrollback.insert(0, line)
+                                    chathistory.insert(0, line)
 
                                 elif notice_regex.match(line):
                                     action = 'NOTICE'
@@ -232,7 +232,7 @@ class scrollback(znc.Module):
                                     message = self.get_message_string(split_line[2:], action)
 
                                     line = '{} :{}!{}@{} NOTICE {} :{}'.format(time, nick, DEFAULT_IDENT, DEFAULT_HOST, target, message)
-                                    scrollback.insert(0, line)
+                                    chathistory.insert(0, line)
 
                                 # Parse 'extra' events if set by user
                                 elif user_config['extras']:
@@ -251,7 +251,7 @@ class scrollback(znc.Module):
                                                 message = ' '.join(split_line[5:]).strip('(').strip(')')
                                                 line = '{} :{}!{}@{} {} {} :{}'.format(time, nick, ident, host, action, target, message).strip()
 
-                                            scrollback.insert(0, line)
+                                            chathistory.insert(0, line)
 
                                         elif kicked_regex.match(line):
                                             action = 'KICK'
@@ -260,7 +260,7 @@ class scrollback(znc.Module):
                                             reason = self.get_message_string(split_line[7:], action)
 
                                             line = '{} :{}!{}@{} KICK {} {} :{}'.format(time, op_nick, DEFAULT_IDENT, DEFAULT_HOST, target, kicked_nick, reason)
-                                            scrollback.insert(0, line)
+                                            chathistory.insert(0, line)
 
                                         elif new_nick_regex.match(line):
                                             action = 'NICK'
@@ -268,7 +268,7 @@ class scrollback(znc.Module):
                                             new_nick = self.get_nick_string(split_line[7], action)
 
                                             line = '{} :{}!{}@{} NICK :{}'.format(time, old_nick, DEFAULT_IDENT, DEFAULT_HOST, new_nick)
-                                            scrollback.insert(0, line)
+                                            chathistory.insert(0, line)
 
                                         elif topic_change_regex.match(line):
                                             action = 'TOPIC'
@@ -276,7 +276,7 @@ class scrollback(znc.Module):
                                             topic = self.get_message_string(split_line[6:], action)
 
                                             line = '{} :{}!{}@{} TOPIC {} :{}'.format(time, nick, DEFAULT_IDENT, DEFAULT_HOST, target, topic)
-                                            scrollback.insert(0, line)
+                                            chathistory.insert(0, line)
 
                                         elif mode_change_regex.match(line):
                                             action = 'MODE'
@@ -284,7 +284,7 @@ class scrollback(znc.Module):
                                             modes = self.get_message_string(split_line[5:], action)
 
                                             line = '{} :{}!{}@{} MODE {} {}'.format(time, nick, DEFAULT_IDENT, DEFAULT_HOST, target, modes)
-                                            scrollback.insert(0, line)
+                                            chathistory.insert(0, line)
                     else:
                         break
             else:
@@ -292,8 +292,8 @@ class scrollback(znc.Module):
 
             isFirstFile = False
 
-        # Send the parsed scrollback to be formatted as an IRCv3 BATCH
-        self.generate_batch(scrollback, target)
+        # Send the parsed chathistory to be formatted as an IRCv3 BATCH
+        self.generate_batch(chathistory, target)
 
     # Get the configuraton of the current user, returning default value if not explicitly set by uesr
     def get_user_config(self):
@@ -308,7 +308,7 @@ class scrollback(znc.Module):
 
     # Set the configuration option for the current user as sent to the module and then write it to the config file
     def set_config(self, key, value):
-        config_file = self.GetSavePath() + '/' + 'scrollback.json'
+        config_file = self.GetSavePath() + '/' + 'chathistory.json'
         user = self.GetUser().GetUserName()
         self.config[user][key] = value
 
@@ -323,7 +323,7 @@ class scrollback(znc.Module):
         self.PutModule("\x02Description:\x02 {}".format(self.description))
         self.PutModule("\x02Version:\x02 {}".format(VERSION))
         self.PutModule("\x02Updated:\x02 {}".format(UPDATED))
-        self.PutModule("\x02Documentation and Source:\x02 https://github.com/MuffinMedic/znc-scrollback")
+        self.PutModule("\x02Documentation and Source:\x02 https://github.com/MuffinMedic/znc-chathistory")
 
     # Handle each of the user commands
     def OnModCommand(self, command):
