@@ -16,7 +16,7 @@ Implements the `CHATHISTORY` command, enabling infinite chathistory in clients b
      - Log files named per the [ZNC 1.6 log module](http://wiki.znc.in/Log#Arguments)  (`%Y-%m-%d.log`)
  - <a href="https://www.python.org">Python 3</a>
  - <a href="http://wiki.znc.in/Modpython">modpython</a>
- - **Your client must have support for the `CHATHISTORY` command as outlined in the [Develope Information](#developer-information). Speak with your client developer if you would like this feature supported.**
+ - **Your client must have support for the `CHATHISTORY` command as outlined in the [Developer Information](#developer-information). Speak with your client developer if you would like this feature supported.**
 
 ## Installation
 To install *znc-chathistory*, place `chathistory.py` in your ZNC modules folder
