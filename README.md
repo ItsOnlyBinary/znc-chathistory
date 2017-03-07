@@ -36,7 +36,7 @@ To install *znc-chathistory*, place `chathistory.py` in your ZNC modules folder
 
 ### Configuration Options
 
-`message_count` **integer** The amount of lines to retrieve during each chathistory request
+`size` **integer** The amount of lines to retrieve during each chathistory request. This is he max amount of lines a client will be allowed to request.
 
 `extras` **True/False**  Include extra events in chathistory (join, kick, mode, nick, quit, part, topic)
 

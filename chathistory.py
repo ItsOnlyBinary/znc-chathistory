@@ -1,5 +1,5 @@
 #  znc-chathistory: ZNC chathistory support
-#  Copyright (C) 2016 Evan Magaliff
+#  Copyright (C) 2017 Evan Magaliff
 #
 #  This program is free software: you can redistribute it and/or modify
 #  it under the terms of the GNU General Public License as published by
@@ -17,9 +17,8 @@
 # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
 #  Authors: Evan (MuffinMedic)                                            #
 #  Contributors: doaks, kr0n, prawnsalad                                  #
-#  Desc: Implements the CHATHISTORY command, enabling infinite            #
-#        chathistory in clients by pulling previous content from log      #
-#        files and sending them to the client as raw IRC lines            #
+#  Desc: Implements the IRCv3 CHATHISTORY extension to allow clients to   #
+#        request historical content from ZNC for inline playback.         #
 # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
 
 import json
@@ -30,8 +29,8 @@ import uuid
 import znc
 from collections import defaultdict
 
-VERSION = '1.0.4'
-UPDATED = "January 2, 2017"
+VERSION = '1.0.5'
+UPDATED = "March 7, 2017"
 
 COMMAND = "CHATHISTORY"
 BATCH_ID_SIZE = 13
@@ -49,6 +48,8 @@ DEFAULT_IDENT = 'chathistory'
 DEFAULT_HOST = 'znc.in'
 
 # Regex patterns needed to extract the IRC events out of the logs
+#command_regex = re.compile(r'^(@label=[A-Z0-9_\-]+ :CHATHISTORY (#|&|!|\+).* [0-9]{4}-[0-1][0-9]-[0-3][0-9]T[0-2][0-9]:[0-5][0-9]:[0-5][0-9]\.[0-9]{3}Z [0-9|\*]+)$', re.IGNORECASE)
+command_regex = re.compile(r'^(CHATHISTORY \S+ [0-9]{4}-[0-1][0-9]-[0-3][0-9]T[0-2][0-9]:[0-5][0-9]:[0-5][0-9]\.[0-9]{3}Z -?[0-9|\*]+)$', re.IGNORECASE)
 log_file_name_regex = re.compile(r'^\d{4}-\d{2}-\d{2}\.log')
 timestamp_regex = re.compile(r'^\[([\d:]+)\]')
 privmsg_regex = re.compile(r'^\[([\d:]+)\] <')
@@ -84,47 +85,73 @@ class chathistory(znc.Module):
                 clients = network.GetClients()
                 for client in clients:
                     nick = client.GetNick()
-                    self.send_isupport(client)
+                    self.send_isupport(client, False)
         return True
 
     def OnClientLogin(self):
         client = self.GetClient()
-        self.send_isupport(client)
+        self.send_isupport(client, True)
 
     def OnUserRaw(self, line):
-        line = str(line).split()
+        line_split = str(line).split()
+        client = self.GetClient()
+        user_config = self.get_user_config()
+        max_message_count = user_config['size']
         # Handle the chathistory command send by the client
-        if line[0].upper() == COMMAND:
-            user = self.GetUser().GetUserName()
-            network = self.GetNetwork().GetName()
-            target = line[1].lower()
+        if line_split[0].upper() == COMMAND:
+            if command_regex.match(str(line)):
+                user = self.GetUser().GetUserName()
+                network = self.GetNetwork().GetName()
+                target = line_split[1].lower()
 
-            user_config = self.get_user_config()
-            user_config['path'] = user_config['path'].replace('$USER', user).replace('$NETWORK', network).replace('$WINDOW', target)
+                user_config = self.get_user_config()
+                user_config['path'] = user_config['path'].replace('$USER', user).replace('$NETWORK', network).replace('$WINDOW', target)
 
-            # CHATHISTORY target start_date start_time message_count
-            # CHATHISTORY #mutterirc 2016-11-12T13:10:01.000Z 100
-            start_date = (line[2].split('T')[0]).replace('timestamp=', '')
-            start_time = (line[2].split('T')[1]).split('.')[0]
+                # CHATHISTORY target start_date start_time message_count
+                # CHATHISTORY #mutterirc 2016-11-12T13:10:01.000Z 100
+                start_date = (line_split[2].split('T')[0]).replace('timestamp=', '')
+                start_time = (line_split[2].split('T')[1]).split('.')[0]
+                if line_split[3] == '*':
+                        message_count = user_config['size']
+                else:
+                    message_count = float(line_split[3])
+                if line_split[3] == '*':
+                    message_count = user_config['size']
+                if message_count != 0:
+                    try:
+                        if abs(message_count) > max_message_count:
+                            self.send_error(client, 'WARN', 'MAX_MESSAGE_COUNT_EXCEEDED')
+                            message_count = max_message_count if message_count > 0 else max_message_count * -1
+                        self.parse_logs(user_config, network, target, start_date, start_time, message_count)
+                        return znc.HALT
+                    except:
+                        pass
+                else:
+                    self.send_error(client, 'ERR', 'MSG_COUNT_INVALID')
+            else:
+                self.send_error(client, 'ERR', 'CMD_INVALID')
+
+        elif line_split[0].upper() == "VERSION":
+            self.send_isupport(client, True)
+
+    def send_isupport(self, client, user_exists):
+        if user_exists:
+            config = self.get_user_config()
+            size = user_config['size']
+        else:
             try:
-                message_count = int(line[3])
-            except (IndexError, ValueError):
-                message_count = user_config['size']
+                size = self.GetUser().GetBufferCount()
+            except:
+                size = znc.CZNC.Get().GetMaxBufferSize()
+        client.PutClient(':irc.znc.in 005 {} {}={} :are supported by this server'.format(client.GetNick(), COMMAND, size))
 
-            try:
-                self.parse_logs(user_config, network, target, start_date, start_time, message_count)
-                return znc.HALT
-            except Exception as e:
-                if user_config['debug']:
-                    self.PutModule(str(e))
-
-        elif line[0]== "VERSION":
-            client = self.GetClient()
-            self.send_isupport(client)
-
-    def send_isupport(self, client):
-        client.PutClient(':irc.znc.in 005 {} {} :are supported by this server'.format(client.GetNick(), COMMAND))
-
+    def send_error(self, client, type, error):
+        user_config = self.get_user_config()
+        if user_config['debug']:
+            self.PutModule("{} CHATHISTORY {} :{}".format(client.GetNickMask(), type, error))
+        else:
+            client.PutClient("{} CHATHISTORY {} :{}".format(client.GetNickMask(), type, error))
+            
     # Format and return the 'time=YYYY-mm-ddTHH:mm:ss.000Z' string to be prepended to the IRC line
     def get_time_string(self, time, file):
         time = time.replace('[', 'time=' + file.split('.')[0] + 'T', 1)
@@ -172,19 +199,23 @@ class chathistory(znc.Module):
 
     # Convert and return the raw chathistory from logs to an IRCv3 BATCH
     def generate_batch(self, chathistory, target):
-        # Generate a random alphanumeric BATCH ID
-        batch_id = ''.join(random.choice(string.ascii_lowercase + string.ascii_uppercase + string.digits) for i in range(BATCH_ID_SIZE))
-        # Place the BATCH start identifer to the beginning of the chathistory
-        line = ':irc.znc.in BATCH +{} chathistory {}'.format(batch_id, target)
-        self.send_chathistory(line)
-        # Prepend the BATCH ID to each line from the chathistory
-        for line in chathistory:
-            msg_id = uuid.uuid4()
-            line = '@batch={};draft/msgid={};{}'.format(batch_id, msg_id, line)
+        if len(chathistory) > 0:
+            # Generate a random alphanumeric BATCH ID
+            batch_id = ''.join(random.choice(string.ascii_lowercase + string.ascii_uppercase + string.digits) for i in range(BATCH_ID_SIZE))
+            # Place the BATCH start identifer to the beginning of the chathistory
+            line = 'irc.znc.in BATCH +{} chathistory {}'.format(batch_id, target)
             self.send_chathistory(line)
-        # Place the BATCH end identifer to the beginning of the chathistory
-        line = ':irc.znc.in BATCH -{}'.format(batch_id)
-        self.send_chathistory(line)
+            # Prepend the BATCH ID to each line from the chathistory
+            for line in chathistory:
+                msg_id = uuid.uuid4()
+                line = '@batch={};draft/msgid={};{}'.format(batch_id, msg_id, line)
+                self.send_chathistory(line)
+            # Place the BATCH end identifer to the beginning of the chathistory
+            line = 'irc.znc.in BATCH -{}'.format(batch_id)
+            self.send_chathistory(line)
+        else:
+            client = self.GetClient()
+            self.send_error(client, 'ERR', 'NOT_FOUND')
 
     # Send the given line to the user
     def send_chathistory(self, line):
@@ -203,88 +234,25 @@ class chathistory(znc.Module):
         files = sorted([f for f in os.listdir(path) if log_file_name_regex.match(f) and f.split('.')[0] <= start_date], reverse=True)
         # Iterate through each file in reverse order, checking if the max number of lines has been reached
         for file in files:
-            if len(chathistory) < message_count:
-                for line in reversed(list(open(path + file, 'r'))):
-                    if len(chathistory) < message_count:
+            if len(chathistory) < abs(message_count):
+                lines = list(open(path + file, 'r'))
+                if message_count < 0:
+                    lines = reversed(lines)
+                for line in lines:
+                    if len(chathistory) < abs(message_count):
                         # Strip control codes if set by user
                         if user_config['strip']:
                             line = strip_control_codes_regex.sub('', line)
                         split_line = line.split()
                         # Check if the current line is before the given date and time by the client
-                        if ((split_line[0]).replace('[', '') < start_time and isFirstFile) or not isFirstFile:
-                            # Handle each line and parse various events
-                            if timestamp_regex.match(line):
-                                time = self.get_time_string(split_line[0], file)
-
-                                if privmsg_regex.match(line):
-                                    action = 'PRIVMSG'
-                                    nick = self.get_nick_string(split_line[1], action)
-                                    ident = self.get_ident_string(None, action)
-                                    host = self.get_host_string(None, action)
-                                    message = self.get_message_string(split_line[2:], action)
-                                    
-                                    line = '{} :{}!{}@{} PRIVMSG {} :{}'.format(time, nick, DEFAULT_IDENT, DEFAULT_HOST, target, message)
-                                    chathistory.insert(0, line)
-
-                                elif notice_regex.match(line):
-                                    action = 'NOTICE'
-                                    nick = self.get_nick_string(split_line[1], action)
-                                    message = self.get_message_string(split_line[2:], action)
-
-                                    line = '{} :{}!{}@{} NOTICE {} :{}'.format(time, nick, DEFAULT_IDENT, DEFAULT_HOST, target, message)
-                                    chathistory.insert(0, line)
-
-                                # Parse 'extra' events if set by user
-                                elif user_config['extras']:
-                                    if action_regex.match(line):
-                                        action = (split_line[2]).strip('s:').upper()
-                                        message = self.get_message_string(None, False)
-
-                                        if action == 'JOIN' or action == 'PART' or action == 'QUIT':
-                                            nick = self.get_nick_string(split_line[3], action)
-                                            ident = self.get_ident_string(split_line[4], action)
-                                            host = self.get_host_string(split_line[4], action)
-
-                                            if action == 'JOIN':
-                                                line = '{} :{}!{}@{} {} :{}'.format(time, nick, ident, host, action, target).strip()
-                                            elif action == 'PART' or action == 'QUIT':
-                                                message = ' '.join(split_line[5:]).strip('(').strip(')')
-                                                line = '{} :{}!{}@{} {} {} :{}'.format(time, nick, ident, host, action, target, message).strip()
-
-                                            chathistory.insert(0, line)
-
-                                        elif kicked_regex.match(line):
-                                            action = 'KICK'
-                                            kicked_nick = self.get_nick_string(split_line[2], action)
-                                            op_nick = self.get_nick_string(split_line[6], action)
-                                            reason = self.get_message_string(split_line[7:], action)
-
-                                            line = '{} :{}!{}@{} KICK {} {} :{}'.format(time, op_nick, DEFAULT_IDENT, DEFAULT_HOST, target, kicked_nick, reason)
-                                            chathistory.insert(0, line)
-
-                                        elif new_nick_regex.match(line):
-                                            action = 'NICK'
-                                            old_nick = self.get_nick_string(split_line[2], action)
-                                            new_nick = self.get_nick_string(split_line[7], action)
-
-                                            line = '{} :{}!{}@{} NICK :{}'.format(time, old_nick, DEFAULT_IDENT, DEFAULT_HOST, new_nick)
-                                            chathistory.insert(0, line)
-
-                                        elif topic_change_regex.match(line):
-                                            action = 'TOPIC'
-                                            nick = self.get_nick_string(split_line[2], action)
-                                            topic = self.get_message_string(split_line[6:], action)
-
-                                            line = '{} :{}!{}@{} TOPIC {} :{}'.format(time, nick, DEFAULT_IDENT, DEFAULT_HOST, target, topic)
-                                            chathistory.insert(0, line)
-
-                                        elif mode_change_regex.match(line):
-                                            action = 'MODE'
-                                            nick = self.get_nick_string(split_line[2], action)
-                                            modes = self.get_message_string(split_line[5:], action)
-
-                                            line = '{} :{}!{}@{} MODE {} {}'.format(time, nick, DEFAULT_IDENT, DEFAULT_HOST, target, modes)
-                                            chathistory.insert(0, line)
+                        if message_count > 0:
+                            if ((split_line[0]).replace('[', '') > start_time and isFirstFile) or not isFirstFile:
+                                line = self.format_line(line, target, file)
+                                chathistory.insert(0, line)
+                        elif message_count < 0:
+                            if ((split_line[0]).replace('[', '') < start_time and isFirstFile) or not isFirstFile:
+                                line = self.format_line(line, target, file)
+                                chathistory.insert(0, line)
                     else:
                         break
             else:
@@ -293,7 +261,78 @@ class chathistory(znc.Module):
             isFirstFile = False
 
         # Send the parsed chathistory to be formatted as an IRCv3 BATCH
+        if message_count > 0:
+            chathistory.reverse()
         self.generate_batch(chathistory, target)
+
+    def format_line(self, line, target, file):
+        split_line = line.split()
+        # Handle each line and parse various events
+        if timestamp_regex.match(line):
+            time = self.get_time_string(split_line[0], file)
+
+            if privmsg_regex.match(line):
+                action = 'PRIVMSG'
+                nick = self.get_nick_string(split_line[1], action)
+                ident = self.get_ident_string(None, action)
+                host = self.get_host_string(None, action)
+                message = self.get_message_string(split_line[2:], action)
+                
+                line = '{} :{}!{}@{} PRIVMSG {} :{}'.format(time, nick, DEFAULT_IDENT, DEFAULT_HOST, target, message)
+
+            elif notice_regex.match(line):
+                action = 'NOTICE'
+                nick = self.get_nick_string(split_line[1], action)
+                message = self.get_message_string(split_line[2:], action)
+
+                line = '{} :{}!{}@{} NOTICE {} :{}'.format(time, nick, DEFAULT_IDENT, DEFAULT_HOST, target, message)
+
+            # Parse 'extra' events if set by user
+            elif user_config['extras']:
+                if action_regex.match(line):
+                    action = (split_line[2]).strip('s:').upper()
+                    message = self.get_message_string(None, False)
+
+                    if action == 'JOIN' or action == 'PART' or action == 'QUIT':
+                        nick = self.get_nick_string(split_line[3], action)
+                        ident = self.get_ident_string(split_line[4], action)
+                        host = self.get_host_string(split_line[4], action)
+
+                        if action == 'JOIN':
+                            line = '{} :{}!{}@{} {} :{}'.format(time, nick, ident, host, action, target).strip()
+                        elif action == 'PART' or action == 'QUIT':
+                            message = ' '.join(split_line[5:]).strip('(').strip(')')
+                            line = '{} :{}!{}@{} {} {} :{}'.format(time, nick, ident, host, action, target, message).strip()
+
+                    elif kicked_regex.match(line):
+                        action = 'KICK'
+                        kicked_nick = self.get_nick_string(split_line[2], action)
+                        op_nick = self.get_nick_string(split_line[6], action)
+                        reason = self.get_message_string(split_line[7:], action)
+
+                        line = '{} :{}!{}@{} KICK {} {} :{}'.format(time, op_nick, DEFAULT_IDENT, DEFAULT_HOST, target, kicked_nick, reason)
+
+                    elif new_nick_regex.match(line):
+                        action = 'NICK'
+                        old_nick = self.get_nick_string(split_line[2], action)
+                        new_nick = self.get_nick_string(split_line[7], action)
+
+                        line = '{} :{}!{}@{} NICK :{}'.format(time, old_nick, DEFAULT_IDENT, DEFAULT_HOST, new_nick)
+
+                    elif topic_change_regex.match(line):
+                        action = 'TOPIC'
+                        nick = self.get_nick_string(split_line[2], action)
+                        topic = self.get_message_string(split_line[6:], action)
+
+                        line = '{} :{}!{}@{} TOPIC {} :{}'.format(time, nick, DEFAULT_IDENT, DEFAULT_HOST, target, topic)
+
+                    elif mode_change_regex.match(line):
+                        action = 'MODE'
+                        nick = self.get_nick_string(split_line[2], action)
+                        modes = self.get_message_string(split_line[5:], action)
+
+                        line = '{} :{}!{}@{} MODE {} {}'.format(time, nick, DEFAULT_IDENT, DEFAULT_HOST, target, modes)
+            return line
 
     # Get the configuraton of the current user, returning default value if not explicitly set by uesr
     def get_user_config(self):
