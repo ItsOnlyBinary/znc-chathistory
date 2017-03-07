@@ -1,5 +1,8 @@
 # Changelog
 
+### Version 1.0.5
+  * Add positive and negative `message_count` to allow for directional content requests
+
 ### Version 1.0.4
   * Add `draft/msgid` tag to scrollback
   * Fix case-sensitivity bug
