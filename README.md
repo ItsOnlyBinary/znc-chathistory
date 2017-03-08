@@ -53,6 +53,8 @@ Specify the complete, absolute path to your log files. Accepted variables (case 
 ## Developer Information
 Please see the [IRCv3 draft specification](https://github.com/ircv3/ircv3-specifications/pull/292) for information on implemention and supporting this batch type.
 
+Due to limitations with ZNC 1.6 and the log format, `draft/label` and `draft/msgid` are not supported. The command SHOULD be sent without a `draft/label` and content is returned without a `draft/msgid`. If a `draft/label` is prefixed to the `CHATHISTORY` command, ZNC will ignore it.
+
 ## Contributors
 Special thank you to [DanielOaks](https://github.com/DanielOaks) and [prawnsalad](https://github.com/prawnsalad) for providing IRCv3 support and feedback.
 

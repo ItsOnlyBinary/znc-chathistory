@@ -49,7 +49,7 @@ DEFAULT_HOST = 'znc.in'
 
 # Regex patterns needed to extract the IRC events out of the logs
 #command_regex = re.compile(r'^(@label=[A-Z0-9_\-]+ :CHATHISTORY (#|&|!|\+).* [0-9]{4}-[0-1][0-9]-[0-3][0-9]T[0-2][0-9]:[0-5][0-9]:[0-5][0-9]\.[0-9]{3}Z [0-9|\*]+)$', re.IGNORECASE)
-command_regex = re.compile(r'^(CHATHISTORY \S+ [0-9]{4}-[0-1][0-9]-[0-3][0-9]T[0-2][0-9]:[0-5][0-9]:[0-5][0-9]\.[0-9]{3}Z -?[0-9|\*]+)$', re.IGNORECASE)
+command_regex = re.compile(r'^((@draft/label=\S+)?CHATHISTORY \S+ (timestamp=[0-9]{4}-[0-1][0-9]-[0-3][0-9]T[0-2][0-9]:[0-5][0-9]:[0-5][0-9]\.[0-9]{3}Z|draft/msgid=\S+) -?[0-9|\*]+)$', re.IGNORECASE)
 log_file_name_regex = re.compile(r'^\d{4}-\d{2}-\d{2}\.log')
 timestamp_regex = re.compile(r'^\[([\d:]+)\]')
 privmsg_regex = re.compile(r'^\[([\d:]+)\] <')
@@ -207,8 +207,9 @@ class chathistory(znc.Module):
             self.send_chathistory(line)
             # Prepend the BATCH ID to each line from the chathistory
             for line in chathistory:
-                msg_id = uuid.uuid4()
-                line = '@batch={};draft/msgid={};{}'.format(batch_id, msg_id, line)
+                #msg_id = uuid.uuid4()
+                #line = '@batch={};draft/msgid={};{}'.format(batch_id, msg_id, line)
+                line = '@batch={};{}'.format(batch_id, line)
                 self.send_chathistory(line)
             # Place the BATCH end identifer to the beginning of the chathistory
             line = 'irc.znc.in BATCH -{}'.format(batch_id)
@@ -248,11 +249,13 @@ class chathistory(znc.Module):
                         if message_count > 0:
                             if ((split_line[0]).replace('[', '') > start_time and isFirstFile) or not isFirstFile:
                                 line = self.format_line(line, target, file)
-                                chathistory.insert(0, line)
+                                if line:
+                                    chathistory.insert(0, line)
                         elif message_count < 0:
                             if ((split_line[0]).replace('[', '') < start_time and isFirstFile) or not isFirstFile:
                                 line = self.format_line(line, target, file)
-                                chathistory.insert(0, line)
+                                if line:
+                                    chathistory.insert(0, line)
                     else:
                         break
             else:
@@ -267,10 +270,10 @@ class chathistory(znc.Module):
 
     def format_line(self, line, target, file):
         split_line = line.split()
+        user_config = self.get_user_config()
         # Handle each line and parse various events
         if timestamp_regex.match(line):
             time = self.get_time_string(split_line[0], file)
-
             if privmsg_regex.match(line):
                 action = 'PRIVMSG'
                 nick = self.get_nick_string(split_line[1], action)
@@ -279,6 +282,7 @@ class chathistory(znc.Module):
                 message = self.get_message_string(split_line[2:], action)
                 
                 line = '{} :{}!{}@{} PRIVMSG {} :{}'.format(time, nick, DEFAULT_IDENT, DEFAULT_HOST, target, message)
+                return line
 
             elif notice_regex.match(line):
                 action = 'NOTICE'
@@ -286,6 +290,7 @@ class chathistory(znc.Module):
                 message = self.get_message_string(split_line[2:], action)
 
                 line = '{} :{}!{}@{} NOTICE {} :{}'.format(time, nick, DEFAULT_IDENT, DEFAULT_HOST, target, message)
+                return line
 
             # Parse 'extra' events if set by user
             elif user_config['extras']:
@@ -303,7 +308,6 @@ class chathistory(znc.Module):
                         elif action == 'PART' or action == 'QUIT':
                             message = ' '.join(split_line[5:]).strip('(').strip(')')
                             line = '{} :{}!{}@{} {} {} :{}'.format(time, nick, ident, host, action, target, message).strip()
-
                     elif kicked_regex.match(line):
                         action = 'KICK'
                         kicked_nick = self.get_nick_string(split_line[2], action)
@@ -332,7 +336,9 @@ class chathistory(znc.Module):
                         modes = self.get_message_string(split_line[5:], action)
 
                         line = '{} :{}!{}@{} MODE {} {}'.format(time, nick, DEFAULT_IDENT, DEFAULT_HOST, target, modes)
-            return line
+                return line
+            else:
+                return None
 
     # Get the configuraton of the current user, returning default value if not explicitly set by uesr
     def get_user_config(self):
