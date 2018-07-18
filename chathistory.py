@@ -22,11 +22,15 @@
 # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
 
 import json
+import multiprocessing
 import os.path
 import random, string
 import re
+import traceback
 import uuid
 import znc
+import warnings
+from time import sleep
 from collections import defaultdict
 
 VERSION = '1.0.5'
@@ -86,6 +90,23 @@ class chathistory(znc.Module):
                 for client in clients:
                     nick = client.GetNick()
                     self.send_isupport(client, False)
+
+        log_queue = multiprocessing.SimpleQueue()
+
+        try:
+            db = self.parse_args(args)
+            multiprocessing.Process(target=DatabaseThread.worker_safe,
+                                    args=(db, self.log_queue, self.internal_log)).start()
+            return True
+        except Exception as e:
+            message.s = str(e)
+
+            with self.internal_log.error() as target:
+                target.write('Could not initialize module caused by: {} {}\n'.format(type(e), str(e)))
+                target.write('Stack trace: ' + traceback.format_exc())
+                target.write('\n')
+
+            return False
         return True
 
     def OnClientLogin(self):
@@ -136,7 +157,7 @@ class chathistory(znc.Module):
 
     def send_isupport(self, client, user_exists):
         if user_exists:
-            config = self.get_user_config()
+            user_config = self.get_user_config()
             size = user_config['size']
         else:
             try:
@@ -229,6 +250,11 @@ class chathistory(znc.Module):
     # Parse through the log files, extract the appropritae content, format a raw IRC line, and send the line for BATCH processing
     def parse_logs(self, user_config, network, target, start_date, start_time, message_count):
         chathistory = []
+
+        
+
+
+
         isFirstFile = True
         path = user_config['path']
         # Get a list of all log files in the given user, network, and window
@@ -414,6 +440,30 @@ class chathistory(znc.Module):
         else:
             self.PutModule("Invalid command. See \x02help\x02 for a list of available commands.")
    
+   
+    # ARGUMENT PARSING
+    # ================
+
+    def parse_args(self, args):
+        if args.strip() == '':
+            raise Exception('Missing argument. Provide connection string as an argument.')
+
+        match = re.search('^\s*sqlite(?:://(.+))?\s*$', args)
+        if match:
+            if match.group(1) is None:
+                return SQLiteDatabase({'database': os.path.join(self.GetSavePath(), 'logs.sqlite')})
+            else:
+                return SQLiteDatabase({'database': match.group(1)})
+
+        match = re.search('^\s*mysql://(.+?):(.+?)@(.+?)/(.+)\s*$', args)
+        if match:
+            return MySQLDatabase({'host': match.group(3),
+                                  'user': match.group(1),
+                                  'passwd': match.group(2),
+                                  'db': match.group(4)})
+
+        raise Exception('Unrecognized connection string. Check the documentation.')
+
    # Generate and output a table of commands, arguments, and their descriptions
     def help(self):
         help = znc.CTable(250)
@@ -437,3 +487,79 @@ class chathistory(znc.Module):
         help.SetCell("Description", "Display this table.")
 
         self.PutModule(help)
+
+class DatabaseThread:
+    @staticmethod
+    def worker_safe(db, log_queue: multiprocessing.SimpleQueue, internal_log) -> None:
+        try:
+            DatabaseThread.worker(db, log_queue, internal_log)
+        except Exception as e:
+            with internal_log.error() as target:
+                target.write('Unrecoverable exception in worker thread: {0} {1}\n'.format(type(e), str(e)))
+                target.write('Stack trace: ' + traceback.format_exc())
+                target.write('\n')
+            raise
+
+    @staticmethod
+    def worker(db, log_queue: multiprocessing.SimpleQueue, internal_log) -> None:
+        db.connect()
+
+        while True:
+            item = log_queue.get()
+            if item is None:
+                break
+
+            try:
+                db.ensure_connected()
+                db.insert_into('logs', item)
+            except Exception as e:
+                sleep_for = 10
+
+                with internal_log.error() as target:
+                    target.write('Could not save to database caused by: {0} {1}\n'.format(type(e), str(e)))
+                    target.write('Database handle state: {}\n'.format(db.conn.open))
+                    target.write('Stack trace: ' + traceback.format_exc())
+                    target.write('Current log: ')
+                    json.dump(item, target)
+                    target.write('\n\n')
+                    target.write('Retry in {} s\n'.format(sleep_for))
+
+                sleep(sleep_for)
+
+                with internal_log.error() as target:
+                    target.write('Retrying now.\n')
+                    log_queue.put(item)
+
+class Database:
+    def __init__(self, dsn: dict):
+        self.dsn = dsn
+        self.conn = None
+
+
+class MySQLDatabase(Database):
+    def connect(self) -> None:
+        import pymysql
+        self.conn = pymysql.connect(use_unicode=True, charset='utf8mb4', **self.dsn)
+        with warnings.catch_warnings():
+            warnings.simplefilter('ignore')
+
+    def ensure_connected(self):
+        if self.conn.open is False:
+            self.connect()
+
+    def select(self, network, target, start_time, end_time, message_count):
+        sql = "SELECT * FROM logs WHERE network = '%s' AND window = '%s' AND created_at >= '%s' AND created_at =< '%s' ORDER BY created_at ASC LIMIT 0, %d"
+        try:
+            cursor = self.conn.cursor()
+            cursor.execute(sql, (network, target, start_time, end_time))
+
+        except:
+            pass
+
+class SQLiteDatabase(Database):
+    def connect(self) -> None:
+        import sqlite3
+        self.conn = sqlite3.connect(**self.dsn)
+
+    def ensure_connected(self):
+        pass
